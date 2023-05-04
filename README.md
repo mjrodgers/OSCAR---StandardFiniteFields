@@ -4,10 +4,12 @@ This is code written for the OSCAR computer algebra system which aims to
 construct finite fields in a standardized way.
 The fields are constructed in a way that avoids the usage of Conway polynomials.
 
-The ideas used are outlined in
-Lübeck, F, Standard generators of finite fields and their cyclic subgroups, Journal of Symbolic Computation (2023)
-which can also be [found on arXiv] (https://arxiv.org/pdf/2107.02257.pdf),
+The ideas used are described by Lübeck in [[1]](#1)
 and some of the code is based on Lübeck's StandardFF GAP package.
+
+## References
+<a id="1">[1]</a>
+Lübeck, F. Standard generators of finite fields and their cyclic subgroups, Journal of Symbolic Computation (2023)(https://arxiv.org/pdf/2107.02257.pdf).
 
 
 ## Usage
