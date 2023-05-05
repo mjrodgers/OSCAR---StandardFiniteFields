@@ -100,9 +100,9 @@ function elementfromsteinitznumber(F::FinField, n)
     if n == 0
         return zero(F)
     else
-        vectorrep = GF(p).(digits(n, base = Int(p)))
         # this forms a linear combo of F.towervasis rows using vectorrep as coefficients,
         # and then convert this vector to an element of F.
+        vectorrep = digits(n, base = Int(p))
         return F(vectorrep * @view F.towerbasis[1:length(vectorrep), :])
     end
 end
@@ -114,7 +114,8 @@ function non_rth_root(F::FinField, r)
     if mod(q-1, r) == 0
         i = 0
         a = zero(F)
-        while a == 0 || a^(div(q-1,r)) == one(F)
+        k = div(q-1,r)
+        while iszero(a) || isone(a^k)
             i += 1
             a = elementfromsteinitznumber(F, standardaffineshift(q, i))
         end
@@ -170,38 +171,37 @@ function steinitznumberforprimedegree(p,r,k)
         Fp.steinitzprimedegree = Dict{ZZRingElem, Dict{ZZRingElem, ZZRingElem}}()
     end
     stpd = Fp.steinitzprimedegree
-    if !haskey(stpd, r)
-        stpd[r] = Dict{ZZRingElem, ZZRingElem}()
+    stpdr = get!(stpd, r) do
+      Dict{ZZRingElem, ZZRingElem}()
     end
-    stpdr = stpd[r]
-    if !haskey(stpdr,k)
+    get!(stpdr, k) do
         # now we need to create the polynomial depending on the prime r
         if r == p
             # Artin-Schreier case
             # k = 1 we get [(Xr[1])^p - (Xr[1]) -1]
             # k > 1 we get (Xr[k])^p - (Xr[k]) - (prod(Xr[j] : j in [1..k-1]))^(p-1))
             q = p^(p^(k-1))
-            stpdr[k] = (p-1)*(q + div(q,p))
+            return (p-1)*(q + div(q,p))
         elseif r == 2 && mod(p,4) == 3
             if k == 1
                 # (Xr[1])^2 +1
-                stpdr[k] = 1
+                return 1
             elseif k == 2
                 a = non_rth_root(standardfinitefield(p,2), r)
                 # Xr[2]^2 -a
-                stpdr[k] = steinitznumber(-a)
+                return steinitznumber(-a)
             else
                 # Xr[i]^2 - Xr[i-1]
-                stpdr[k] = (p-1)*p^(r^(k-2))
+                return (p-1)*p^(r^(k-2))
             end
         elseif r == 2
             if k == 1
                 # Xr[1]^2 -a
                 a = non_rth_root(standardfinitefield(p, 1), r)
-                stpdr[k] = steinitznumber(-a)
+                return steinitznumber(-a)
             else
                 # Xr[j]^r - Xr[j-1]
-                stpdr[k] = (p-1)*p^(r^(k-2))
+                return (p-1)*p^(r^(k-2))
             end
         else
             # Here we use pseudo-random polynomials...
@@ -216,10 +216,9 @@ function steinitznumberforprimedegree(p,r,k)
             while is_zero(l[end])
                 pop!(l)
             end
-            stpdr[k] = evaluate(polynomial(ZZ, steinitznumber.(l)), order(F))
+            return evaluate(polynomial(ZZ, steinitznumber.(l)), order(F))
         end
     end
-    return stpdr[k]
 end
 
 # x will be represented internally as a polynomial over Fp in the generator of F.
@@ -255,7 +254,8 @@ function std_mon_degs(n::ZZRingElem)
     nfactors = sort([r for (r,e) in nfactorization])
     a = nfactors[end]
     res = std_mon_degs(div(n,a))
-    new = map( x -> lcm( x, a^nfactorization[a] ),res)
+    k = a^nfactorization[a]
+    new = map( x -> lcm(x, k), res)
     for i = 1:a-1
         append!(res, new)
     end
@@ -327,6 +327,7 @@ function _extensionwithtowerbasis(K::FinField, deg, lcoeffs, b)
     vecs = Vector{Vector{FinFieldElem}}(undef, d)
     pols = Vector{Vector{FinFieldElem}}(undef, d)
     pmat = zero_matrix(F, d, d)
+    poly = Vector{FinFieldElem}[]
 
     for i in 1:d+1
         # println("i: ", i, " vec: ", vec, " v: ", v)
@@ -334,8 +335,8 @@ function _extensionwithtowerbasis(K::FinField, deg, lcoeffs, b)
             pmat[i, : ] = vec
         end
 
-        p = zeros(F, i)
-        p[end] = one(F)
+        poly = zeros(F, i)
+        poly[end] = one(F)
 
         w = copy(vec)
         piv = findfirst(!iszero, w)
@@ -344,7 +345,7 @@ function _extensionwithtowerbasis(K::FinField, deg, lcoeffs, b)
             x = -w[piv]
             if isassigned(pols, piv)
                 # println("p: ", p, " piv ", piv, " pols[piv]: ", pols[piv])
-                p[1:length(pols[piv])] += x .* pols[piv]
+                poly[1:length(pols[piv])] += x .* pols[piv]
             end
             w[piv:d] += x .* @view vecs[piv][piv:d]
             piv = findnext(!iszero, w, piv+1)
@@ -355,9 +356,9 @@ function _extensionwithtowerbasis(K::FinField, deg, lcoeffs, b)
         if i <= d
             # println(order(K), " ", piv, " ", v, " ", w)
             x = inv(w[piv])
-            p .= x .* p
+            poly .= x .* poly
             w .= x .* w
-            pols[piv] = copy(p)
+            pols[piv] = copy(poly)
             vecs[piv] = copy(w)
 
 
@@ -377,7 +378,7 @@ function _extensionwithtowerbasis(K::FinField, deg, lcoeffs, b)
     # pmat gives the primitive powers in the tower basis for the new extension
 
     vname = "x" * string(d)
-    L, X = FiniteField(polynomial(F, p), vname)
+    L, X = FiniteField(polynomial(F, poly), vname)
     L.is_standardfinitefield = true
     L.primitivepowersintowerbasis = pmat
 
