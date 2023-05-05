@@ -15,65 +15,63 @@ function coords(x::T) where T <: Union{fpFieldElem, FpFieldElem}
     return [x]
 end
 
-
-# NOTE: We piggyback on the _attrs (type Dict{Symbol, Any}) property to define:
-# is_standardfinitefield (bool)
-# is_standardprimefield (bool)
-# primitivepowersintowerbasis (matrix)
-# towerbasis (also matrix - inverse of primitivepowersintowerbasis)
-# steinitzprimedegree (double-indexed dict:
-#                    stpd[r][k] will be integer corresponding to Steinitz number for polynomial fr_k)
-# standardextensions (Dict{Integer, FField})
-# NOTE I think a blanket overwrite of getproperty/setproperty! has potential for conflict with other packages
-#       that also want to use custom properties...
-# TODO We should give some type checking on these bonus properties
-# TODO and also redefine propertynames
-_propertysymbols = [:is_standardfinitefield, :is_standardprimefield, :primitivepowersintowerbasis, :towerbasis, :steinitzprimedegree, :standardextensions]
-function Base.setproperty!(F::FinField, v::Symbol, c)
-    if v == :primitivepowersintowerbasis
-        if !isdefined(F, :__attrs)
-            setfield!(F, :__attrs, Dict{Symbol, Any}(v => c))
-            push!(getfield(F, :__attrs), :towerbasis => inv(c))
-        else
-            push!(getfield(F, :__attrs), v =>c)
-            push!(getfield(F, :__attrs), :towerbasis => inv(c))
-        end
-    elseif v == :towerbasis
-        error()
-    elseif v in _propertysymbols
-        if !isdefined(F, :__attrs)
-            setfield!(F, :__attrs, Dict{Symbol, Any}(v => c))
-        else
-            push!(getfield(F, :__attrs), v =>c)
-        end
-    else
-        setfield!(F, v, c)
+# _attributes = [
+    # :is_standardfinitefield      - bool
+    # :is_standardprimefield       - bool
+    # :primitivepowersintowerbasis - Matrix{FinFieldElem}
+    # :towerbasis                  - Matrix{FFieldElem} = inv(:primitivepowersintowerbasis)
+    # :steinitzprimedegree         - Dict{Int, Dict{Int, Int}}
+    # :standardextensions          - Dict{Int, FinField} ]
+function set_standardprimefield!(F::T) where T <: Union{Nemo.fpField, Nemo.FpField}
+    set_attribute!(F, :is_standardprimefield, true)
+end
+function set_standardfinitefield!(F::T) where T <: FinField
+    set_attribute!(F, :is_standardfinitefield, true)
+end
+function set_primitivepowersintowerbasis!(F::T, M::Matrix{T}) where T <: FinField
+    set_attribute!(F, :primitivepowersintowerbasis, M)
+    set_attribute!(F, :towerbasis, inv(M))
+end
+function set_steinitzprimedegree!(F::T, r::Integer, k::Integer, nr::Integer) where T <: FinField
+    spd = get_attribute!(F, :steinitzprimedegree) do
+        Dict{ZZRingElem, Dict{ZZRingElem, ZZRingElem}}()
     end
+    spd[r][k] = nr
+end
+function set_steinitzprimedegree!(f::Function, F::T, r::Integer, k::Integer) where T <: FinField
+    spd = get_attribute!(F, :steinitzprimedegree) do
+        Dict{ZZRingElem, Dict{ZZRingElem, ZZRingElem}}()
+    end
+    spd[r][k] = nr
+end
+function set_standardextension(F::T, n::Integer, K::FinField) where T <: Union{Nemo.fpField, Nemo.FpField}
+    ext = get_attribute!(F, :standardextensions)
+    ext[n] = K
+end
+function is_standardprimefield(F::T) where T <: Union{Nemo.fpField, Nemo.FpField}
+    get_attribute!(F, :is_standardprimefield, false)
+end
+function is_standardfinitefield(F::T) where T <: FinField
+    get_attribute!(F, :is_standardfinitefield, false)
+end
+function primitivepowersintowerbasis(F::T) where T <: FinField
+    get_attribute(F, :primitivepowersintowerbasis)
+end
+function towerbasis(F::T) where T <: FinField
+    get_attribute(f, :towerbasis)
+end
+function get_steinitzprimedegree(F::T, r::Integer, k::Integer) where T <: FinField
+    spd = get_attribute(F, :steinitzprimedegree)
+    get(spd, r,k) do nothing end
+end
+function get_steinitzprimedegree!(f::Function, F::T, r::Integer, k::Integer) where T <: FinField
+    spd = get_attribute!(F, :steinitzprimedegree) do
+        Dict{ZZRingElem, Dict{ZZRingElem, ZZRingElem}}()
+    end
+    spdr = get!(spd, r)
+    get!( spd[r][k] = nr
 end
 
-function Base.getproperty(F::FinField, v::Symbol)
-    if v == :is_standardfinitefield
-        if !isdefined(F, :__attrs) || !haskey(getfield(F, :__attrs), :is_standardfinitefield)
-            return false
-        else
-            return get(getfield(F, :__attrs), :is_standardfinitefield, false)
-        end
-    elseif v == :is_standardprimefield
-        if !isdefined(F, :__attrs) || !haskey(getfield(F, :__attrs), :is_standardprimefield)
-            return false
-        else
-            return get(getfield(F, :__attrs), :is_standardprimefield, false)
-        end
-    elseif v in _propertysymbols
-        if !isdefined(F, :__attrs)
-            error()
-        else
-            return get(getfield(F, :__attrs), v, nothing)
-        end
-    else
-        return getfield(F, v)
-    end
-end
 
 
 # TODO: Lübeck speeds this up by caching triples [q,m,a] resulting from this
@@ -103,7 +101,7 @@ function elementfromsteinitznumber(F::FinField, n)
         # this forms a linear combo of F.towervasis rows using vectorrep as coefficients,
         # and then convert this vector to an element of F.
         vectorrep = digits(n, base = Int(p))
-        return F(vectorrep * @view F.towerbasis[1:length(vectorrep), :])
+        return F(vectorrep * @view towerbasis(F)[1:length(vectorrep), :])
     end
 end
 
@@ -167,6 +165,11 @@ end
 # where f = X^r + g(X) is the standard irreducible polynomial over FF(p, r^(k-1))
 function steinitznumberforprimedegree(p,r,k)
     Fp = standardfinitefield(p,1)
+
+    se
+
+    stpd = get_attribute!(Fp, :steinitzprimedegree, Dict{ZZRingElem, Dict{ZZRingElem, ZZRingElem}}())
+
     if !haskey(Fp.__attrs, :steinitzprimedegree)
         Fp.steinitzprimedegree = Dict{ZZRingElem, Dict{ZZRingElem, ZZRingElem}}()
     end
