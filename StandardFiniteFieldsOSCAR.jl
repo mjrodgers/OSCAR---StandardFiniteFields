@@ -88,6 +88,9 @@ end
 
 # Given a field F and Steinitz number n, give the corresponding field element.
 # we REQUIRE that F is a standard finite field TODO: using @assert?
+function elementfromsteinitznumber(F::T, n) where T <: Union{Nemo.fpField, Nemo.FpField}
+    return F(n)
+end
 function elementfromsteinitznumber(F::FinField, n)
     p = characteristic(F)
     q = order(F)
@@ -96,8 +99,6 @@ function elementfromsteinitznumber(F::FinField, n)
     end
     if n == 0
         return zero(F)
-    elseif q == p
-        return F(n)
     else
         vectorrep = GF(p).(digits(n, base = Int(p)))
         # this forms a linear combo of F.towervasis rows using vectorrep as coefficients,
@@ -122,7 +123,6 @@ function non_rth_root(F::FinField, r)
         return nothing
     end
 end
-
 
 function standardirreduciblecoefflist(F::FinField, r, a)
     q = order(F)
@@ -228,29 +228,30 @@ end
 # Then we think of this vector as a polynomial (over ZZ) in a temporary indeterminate z,
 # and evaluate at z = char(F) to get the Steinitz number.
 # NOTE for whatever reason, evaluate(polynomial(), ) is faster than evalpoly()
-function steinitznumber(F::FinField, x::FinFieldElem)
-    if order(F) == characteristic(F)
-        return lift(x)
-    end
+function steinitznumber(F::T, x) where T <: Union{Nemo.fpField, Nemo.FpField}
+  @assert parent(x) === F
+  return lift(x)
+end
+function steinitznumber(F::T, x) where T <: FinField
+    @assert parent(x) === F
     v = lift.(absolute_coordinates(x) * F.primitivepowersintowerbasis)
     return evaluate(polynomial(ZZ, v), characteristic(F))
 end
-function steinitznumber(x::FinFieldElem)
+function steinitznumber(x::T) where T <: FinFieldElem
     return steinitznumber(parent(x), x)
 end
-
 
 # describes monomials in tower basis plus their degrees
 function std_mon(n)
     error("not implemented")
 end
 # just return degrees
-function std_mon_degs(n)
+function std_mon_degs(n::ZZRingElem)
     if n == 1
         return [ZZ(1)]
     end
     # need the largest prime factor a of n
-    nfactorization = factor(ZZ(n))
+    nfactorization = factor(n)
     nfactors = sort([r for (r,e) in nfactorization])
     a = nfactors[end]
     res = std_mon_degs(div(n,a))
@@ -260,14 +261,11 @@ function std_mon_degs(n)
     end
     return res
 end
-
-
 # map of monomials for degree n -> monomials of degree m by positions
 function std_mon_map(n,m)
     d = std_mon_degs(m)
     return [i for i = 1:length(d) if mod(n, d[i]) == 0]
 end
-
 
 # Embed an element x of Fp^n into Fp^m by Steinitz numbers
 # where nr = steinitznumber(Fp^n, x)
@@ -284,87 +282,99 @@ function embedsteinitz(p,n,m,nr)
 end
 
 
-
 # Given a field K, we construct an extension L with [L:K] = deg
 # We use the irreducible polynomial f = X^deg  + g(X)
 #    where lcoeffs are the coefficients of g(X).
 # We assume b is a generator for K, and so bX will be a generator for L
-function _extensionwithtowerbasis(K::FinField, deg, lcoeffs, b::FinFieldElem)
+function _extensionwithtowerbasis(K::T, deg, lcoeffs, b) where T <: Union{Nemo.fpField, Nemo.FpField}
+    @assert parent(b) === K
+
+    while length(lcoeffs) < deg
+        push!(lcoeffs, zero(K))
+    end
+    push!(lcoeffs, one(K))
+    pmat = identity_matrix(K, Int(deg))
+    vname = "x" * string(deg)
+    L, X = FiniteField(polynomial(K, lcoeffs), vname)
+    L.is_standardfinitefield = true
+    L.primitivepowersintowerbasis = pmat
+
+    return L
+end
+function _extensionwithtowerbasis(K::FinField, deg, lcoeffs, b)
+    @assert parent(b) === K
+
     dK = absolute_degree(K)
+    if dK == 1 then
+        println("_extensionwithtowerbasis is running unoptimized...")
+    end
     d = Int(dK * deg)
     F = prime_field(K)
-    if dK == 1
-        p = zeros(K, Int(deg)+1)
-        p[1:length(lcoeffs)] = lcoeffs
-        p[end] = one(K)
-        pmat = identity_matrix(F, Int(deg))
-    else
-        while length(lcoeffs) < deg
-            push!(lcoeffs, zero(K))
-        end
-        push!(lcoeffs, one(K))
-        pK = K.primitivepowersintowerbasis
-
-        # The idea is to collect (bX)^i mod f for 1 in 0..d*dK-1
-        # and use this to compute the minimal polynomial of bX over F.
-        # Should we just form the polynomial and compute "mod"???
-        vec = zeros(F, d)
-        vec[1] = one(F)
-        v = zeros(K, Int(deg))
-        v[1] = one(K)
-
-        vecs = Vector{Vector{FinFieldElem}}(undef, d)
-        pols = Vector{Vector{FinFieldElem}}(undef, d)
-        pmat = zero_matrix(F, d, d)
-
-        for i in 1:d+1
-            # println("i: ", i, " vec: ", vec, " v: ", v)
-            if i <= d
-                pmat[i, : ] = vec
-            end
-
-            p = zeros(F, i)
-            p[end] = one(F)
-
-            w = copy(vec)
-            piv = findfirst(!iszero, w)
-            # TODO : figure out the purpose of this loop and FIX it
-            while piv != nothing && isassigned(vecs, piv)
-                x = -w[piv]
-                if isassigned(pols, piv)
-                    # println("p: ", p, " piv ", piv, " pols[piv]: ", pols[piv])
-                    p[1:length(pols[piv])] += x .* pols[piv]
-                end
-                w[piv:d] += x .* @view vecs[piv][piv:d]
-                piv = findnext(!iszero, w, piv+1)
-            end
-            # NOTE : exits the while loop when either piv == nothing, or vecs[piv] is undefined.
-            #        what happens if piv == nothing???
-            # println("Exiting loop with piv = ", piv)
-            if i <= d
-                # println(order(K), " ", piv, " ", v, " ", w)
-                x = inv(w[piv])
-                p .= x .* p
-                w .= x .* w
-                pols[piv] = copy(p)
-                vecs[piv] = copy(w)
-
-
-                # Multiply by vX and find the next vec in the Tower Basis
-                v = collect(coefficients(mod(polynomial(K, pushfirst!(b .* v, zero(K))),
-                                             polynomial(K, lcoeffs))))
-
-                while length(v) < deg
-                    push!(v, zero(K))
-                end
-                # println("new v:", v)
-                vec = vcat(map( a -> coords(a) * pK, v)...)
-
-            end
-        end
-        # Now p is the minimal polynomial over F
-        # pmat gives the primitive powers in the tower basis for the new extension
+    while length(lcoeffs) < deg
+        push!(lcoeffs, zero(K))
     end
+    push!(lcoeffs, one(K))
+    pK = K.primitivepowersintowerbasis
+
+    # The idea is to collect (bX)^i mod f for 1 in 0..d*dK-1
+    # and use this to compute the minimal polynomial of bX over F.
+    # Should we just form the polynomial and compute "mod"???
+    vec = zeros(F, d)
+    vec[1] = one(F)
+    v = zeros(K, Int(deg))
+    v[1] = one(K)
+
+    vecs = Vector{Vector{FinFieldElem}}(undef, d)
+    pols = Vector{Vector{FinFieldElem}}(undef, d)
+    pmat = zero_matrix(F, d, d)
+
+    for i in 1:d+1
+        # println("i: ", i, " vec: ", vec, " v: ", v)
+        if i <= d
+            pmat[i, : ] = vec
+        end
+
+        p = zeros(F, i)
+        p[end] = one(F)
+
+        w = copy(vec)
+        piv = findfirst(!iszero, w)
+        # TODO : figure out the purpose of this loop and FIX it
+        while piv != nothing && isassigned(vecs, piv)
+            x = -w[piv]
+            if isassigned(pols, piv)
+                # println("p: ", p, " piv ", piv, " pols[piv]: ", pols[piv])
+                p[1:length(pols[piv])] += x .* pols[piv]
+            end
+            w[piv:d] += x .* @view vecs[piv][piv:d]
+            piv = findnext(!iszero, w, piv+1)
+        end
+        # NOTE : exits the while loop when either piv == nothing, or vecs[piv] is undefined.
+        #        what happens if piv == nothing???
+        # println("Exiting loop with piv = ", piv)
+        if i <= d
+            # println(order(K), " ", piv, " ", v, " ", w)
+            x = inv(w[piv])
+            p .= x .* p
+            w .= x .* w
+            pols[piv] = copy(p)
+            vecs[piv] = copy(w)
+
+
+            # Multiply by vX and find the next vec in the Tower Basis
+            v = collect(coefficients(mod(polynomial(K, pushfirst!(b .* v, zero(K))),
+                                         polynomial(K, lcoeffs))))
+
+            while length(v) < deg
+                push!(v, zero(K))
+            end
+            # println("new v:", v)
+            vec = vcat(map( a -> coords(a) * pK, v)...)
+
+        end
+    end
+    # Now p is the minimal polynomial over F
+    # pmat gives the primitive powers in the tower basis for the new extension
 
     vname = "x" * string(d)
     L, X = FiniteField(polynomial(F, p), vname)
@@ -375,7 +385,7 @@ function _extensionwithtowerbasis(K::FinField, deg, lcoeffs, b::FinFieldElem)
 
 end
 
-
+# TODO: this should work also if p is an integer
 function standardfinitefield(p::ZZRingElem,n)
     if !isprime(p)
         error()
@@ -416,6 +426,7 @@ end
 
 
 
+# The code below is for testing/benchmarking
 GAP.Packages.load("StandardFF")
 
 function MyPoly(p,n)
