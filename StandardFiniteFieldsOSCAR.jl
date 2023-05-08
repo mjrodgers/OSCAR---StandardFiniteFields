@@ -1,6 +1,8 @@
 using Oscar
 
 # NOTE: These give missing features to OSCAR/Nemo that will likely be added in the near future.
+
+# TODO : Should be fixed in Nemo
 function (k::Nemo.FpField)(a::Vector)
   @assert length(a) == 1
   return k(a[1])
@@ -8,6 +10,8 @@ end
 function (k::FqPolyRepField)(a::Vector)
   return k(polynomial(GF(ZZ(characteristic(k))), a))
 end
+
+# TODO : Should be fixed in Hecke for prime fields
 function coords(x::FinFieldElem)
     return absolute_coordinates(x)
 end
@@ -15,64 +19,94 @@ function coords(x::T) where T <: Union{fpFieldElem, FpFieldElem}
     return [x]
 end
 
+# TODO : this doesn't work, needs to be fixed in Nemo
+# BUG the fact that this is missing is a major performance problem
+# function inv(a::FpMatrix)
+#   !is_square(a) && error("Matrix must be a square matrix")
+#   z = similar(a)
+#   r = ccall((:nmod_mat_inv, libflint), Int,
+#           (Ref{FpMatrix}, Ref{FpMatrix}), z, a)
+#   !Bool(r) && error("Matrix not invertible")
+#   return z
+# end
 
-# NOTE: We piggyback on the _attrs (type Dict{Symbol, Any}) property to define:
-# is_standardfinitefield (bool)
-# is_standardprimefield (bool)
-# primitivepowersintowerbasis (matrix)
-# towerbasis (also matrix - inverse of primitivepowersintowerbasis)
-# steinitzprimedegree (double-indexed dict:
-#                    stpd[r][k] will be integer corresponding to Steinitz number for polynomial fr_k)
-# standardextensions (Dict{Integer, FField})
-# NOTE I think a blanket overwrite of getproperty/setproperty! has potential for conflict with other packages
-#       that also want to use custom properties...
-# TODO We should give some type checking on these bonus properties
-# TODO and also redefine propertynames
-_propertysymbols = [:is_standardfinitefield, :is_standardprimefield, :primitivepowersintowerbasis, :towerbasis, :steinitzprimedegree, :standardextensions]
-function Base.setproperty!(F::FinField, v::Symbol, c)
-    if v == :primitivepowersintowerbasis
-        if !isdefined(F, :__attrs)
-            setfield!(F, :__attrs, Dict{Symbol, Any}(v => c))
-            push!(getfield(F, :__attrs), :towerbasis => inv(c))
-        else
-            push!(getfield(F, :__attrs), v =>c)
-            push!(getfield(F, :__attrs), :towerbasis => inv(c))
-        end
-    elseif v == :towerbasis
-        error()
-    elseif v in _propertysymbols
-        if !isdefined(F, :__attrs)
-            setfield!(F, :__attrs, Dict{Symbol, Any}(v => c))
-        else
-            push!(getfield(F, :__attrs), v =>c)
-        end
-    else
-        setfield!(F, v, c)
+# _attributes = [
+    # :is_standardfinitefield      - bool
+    # :is_standardprimefield       - bool
+    # :primitivepowersintowerbasis - Matrix{FinFieldElem}
+    # :towerbasis                  - Matrix{FFieldElem} = inv(:primitivepowersintowerbasis)
+    # NOTE I guess we used ZZ ring elements for these instead of Int; does it matter?
+    # :steinitzprimedegree         - Dict{Int, Dict{Int, Int}}
+    # :standardextensions          - Dict{Int, FinField} ]
+function set_standardprimefield!(F::T) where T <: Union{Nemo.fpField, Nemo.FpField}
+    get_attribute!(F, :is_standardprimefield) do
+        set_attribute!(F, :standardextensions, Dict{ZZRingElem, FinField}(1 => F))
+        set_attribute!(F, :primitivepowersintowerbasis, identity_matrix(F, 1))
+        true
     end
 end
+function set_standardfinitefield!(F::T) where T <: FinField
+    set_attribute!(F, :is_standardfinitefield, true)
+end
+function set_primitivepowersintowerbasis!(F::T, M::S) where T <: FinField where S <: Union{FpMatrix, fpMatrix}
+    set_attribute!(F, :primitivepowersintowerbasis, M)
+    set_attribute!(F, :towerbasis, inv(M))
+end
+function set_steinitzprimedegree!(F::T, r::S, k::S, nr::S) where T <: FinField where S <: Union{ZZRingElem, Integer}
+    spd = get_attribute!(F, :steinitzprimedegree, Dict{ZZRingElem, Dict{ZZRingElem, ZZRingElem}}())
+    spdr = get!(spd, r, Dict{ZZRingElem, ZZRingElem})
+    spdr[k] = nr
+end
+function set_steinitzprimedegree!(f::Function, F::T, r::S, k::S) where T <: FinField where S <: Union{ZZRingElem, Integer}
+    spd = get_attribute!(F, :steinitzprimedegree, Dict{ZZRingElem, Dict{ZZRingElem, ZZRingElem}}())
+    spdr = get!(spd, r, Dict{ZZRingElem, ZZRingElem})
+    spd[r][k] = f()
+end
+function set_standardextension!(F::T, n::S, K::FinField) where T <: Union{Nemo.fpField, Nemo.FpField} where S <: Union{ZZRingElem, Integer}
+    ext = get_attribute!(F, :standardextensions, Dict{ZZRingElem, FinField}())
+    ext[n] = K
+end
 
-function Base.getproperty(F::FinField, v::Symbol)
-    if v == :is_standardfinitefield
-        if !isdefined(F, :__attrs) || !haskey(getfield(F, :__attrs), :is_standardfinitefield)
-            return false
-        else
-            return get(getfield(F, :__attrs), :is_standardfinitefield, false)
-        end
-    elseif v == :is_standardprimefield
-        if !isdefined(F, :__attrs) || !haskey(getfield(F, :__attrs), :is_standardprimefield)
-            return false
-        else
-            return get(getfield(F, :__attrs), :is_standardprimefield, false)
-        end
-    elseif v in _propertysymbols
-        if !isdefined(F, :__attrs)
-            error()
-        else
-            return get(getfield(F, :__attrs), v, nothing)
-        end
-    else
-        return getfield(F, v)
-    end
+
+function is_standardprimefield(F::T) where T <: Union{Nemo.fpField, Nemo.FpField}
+    get_attribute(F, :is_standardprimefield, false)
+end
+function is_standardfinitefield(F::T) where T <: FinField
+    get_attribute(F, :is_standardfinitefield, false)
+end
+function primitivepowersintowerbasis(F::T) where T <: FinField
+    get_attribute(F, :primitivepowersintowerbasis, nothing)
+end
+function towerbasis(F::T) where T <: FinField
+    get_attribute(F, :towerbasis, nothing)
+end
+function get_steinitzprimedegree(F::T, r::S, k::S) where T <: FinField where S <: Union{ZZRingElem, Integer}
+    spd = get_attribute(F, :steinitzprimedegree, nothing)
+    spdr = get(spd, r, nothing)
+    get(spdr, k, nothing)
+end
+function get_steinitzprimedegree!(f::Function, F::T, r::S, k::S) where T <: FinField where S <: Union{ZZRingElem, Integer}
+    spd = get_attribute!(F, :steinitzprimedegree, Dict{ZZRingElem, Dict{ZZRingElem, ZZRingElem}}() )
+    spdr = get!(spd, r, Dict{ZZRingElem, ZZRingElem}())
+    get!(spdr, k, f())
+end
+function get_standardextensions(F::T) where T <: Union{Nemo.fpField, Nemo.FpField}
+  get_attribute(F, :standardextensions, nothing)
+end
+function get_standardextensions!(F::T) where T <: Union{Nemo.fpField, Nemo.FpField}
+  get_attribute(F, :standardextensions, Dict{ZZRingElem, FinField}())
+end
+function get_standardextension(F::T, k::S) where T <: Union{Nemo.fpField, Nemo.FpField} where S <: Union{ZZRingElem, Integer}
+  ext = get_attribute(F, :standardextensions, nothing)
+  get(ext, k, nothing)
+end
+function get_standardextension!(F::T, k::S, L::FinField) where T <: Union{Nemo.fpField, Nemo.FpField} where S <: Union{ZZRingElem, Integer}
+  ext = get_attribute!(F, :standardextensions, Dict{ZZRingElem, FinField}())
+  get!(ext, k, L)
+end
+function get_standardextension!(f::Function, F::T, k::S) where T<: Union{Nemo.fpField, Nemo.FpField} where S <: Union{ZZRingElem, Integer}
+  ext = get_attribute!(F, :standardextensions, Dict{ZZRingElem, FinField}())
+  get!(f, ext, k)
 end
 
 
@@ -88,6 +122,9 @@ end
 
 # Given a field F and Steinitz number n, give the corresponding field element.
 # we REQUIRE that F is a standard finite field TODO: using @assert?
+function elementfromsteinitznumber(F::T, n) where T <: Union{Nemo.fpField, Nemo.FpField}
+    return F(n)
+end
 function elementfromsteinitznumber(F::FinField, n)
     p = characteristic(F)
     q = order(F)
@@ -96,13 +133,11 @@ function elementfromsteinitznumber(F::FinField, n)
     end
     if n == 0
         return zero(F)
-    elseif q == p
-        return F(n)
     else
-        vectorrep = GF(p).(digits(n, base = Int(p)))
         # this forms a linear combo of F.towervasis rows using vectorrep as coefficients,
         # and then convert this vector to an element of F.
-        return F(vectorrep * @view F.towerbasis[1:length(vectorrep), :])
+        vectorrep = digits(n, base = Int(p))
+        return F(vectorrep * @view towerbasis(F)[1:length(vectorrep), :])
     end
 end
 
@@ -113,7 +148,8 @@ function non_rth_root(F::FinField, r)
     if mod(q-1, r) == 0
         i = 0
         a = zero(F)
-        while a == 0 || a^(div(q-1,r)) == one(F)
+        k = div(q-1,r)
+        while iszero(a) || isone(a^k)
             i += 1
             a = elementfromsteinitznumber(F, standardaffineshift(q, i))
         end
@@ -122,7 +158,6 @@ function non_rth_root(F::FinField, r)
         return nothing
     end
 end
-
 
 function standardirreduciblecoefflist(F::FinField, r, a)
     q = order(F)
@@ -164,44 +199,37 @@ end
 
 # returns the Steinitz number corresponding to the polynomial g(X),
 # where f = X^r + g(X) is the standard irreducible polynomial over FF(p, r^(k-1))
-function steinitznumberforprimedegree(p,r,k)
+function steinitznumberforprimedegree(p::ZZRingElem, r::S, k::S) where S <: Union{ZZRingElem, Integer}
     Fp = standardfinitefield(p,1)
-    if !haskey(Fp.__attrs, :steinitzprimedegree)
-        Fp.steinitzprimedegree = Dict{ZZRingElem, Dict{ZZRingElem, ZZRingElem}}()
-    end
-    stpd = Fp.steinitzprimedegree
-    if !haskey(stpd, r)
-        stpd[r] = Dict{ZZRingElem, ZZRingElem}()
-    end
-    stpdr = stpd[r]
-    if !haskey(stpdr,k)
+
+    get_steinitzprimedegree!(Fp, Int(r), Int(k)) do
         # now we need to create the polynomial depending on the prime r
         if r == p
             # Artin-Schreier case
             # k = 1 we get [(Xr[1])^p - (Xr[1]) -1]
             # k > 1 we get (Xr[k])^p - (Xr[k]) - (prod(Xr[j] : j in [1..k-1]))^(p-1))
             q = p^(p^(k-1))
-            stpdr[k] = (p-1)*(q + div(q,p))
+            return (p-1)*(q + div(q,p))
         elseif r == 2 && mod(p,4) == 3
             if k == 1
                 # (Xr[1])^2 +1
-                stpdr[k] = 1
+                return 1
             elseif k == 2
                 a = non_rth_root(standardfinitefield(p,2), r)
                 # Xr[2]^2 -a
-                stpdr[k] = steinitznumber(-a)
+                return steinitznumber(-a)
             else
                 # Xr[i]^2 - Xr[i-1]
-                stpdr[k] = (p-1)*p^(r^(k-2))
+                return (p-1)*p^(r^(k-2))
             end
         elseif r == 2
             if k == 1
                 # Xr[1]^2 -a
                 a = non_rth_root(standardfinitefield(p, 1), r)
-                stpdr[k] = steinitznumber(-a)
+                return steinitznumber(-a)
             else
                 # Xr[j]^r - Xr[j-1]
-                stpdr[k] = (p-1)*p^(r^(k-2))
+                return (p-1)*p^(r^(k-2))
             end
         else
             # Here we use pseudo-random polynomials...
@@ -216,10 +244,9 @@ function steinitznumberforprimedegree(p,r,k)
             while is_zero(l[end])
                 pop!(l)
             end
-            stpdr[k] = evaluate(polynomial(ZZ, steinitznumber.(l)), order(F))
+            return evaluate(polynomial(ZZ, steinitznumber.(l)), order(F))
         end
     end
-    return stpdr[k]
 end
 
 # x will be represented internally as a polynomial over Fp in the generator of F.
@@ -228,46 +255,45 @@ end
 # Then we think of this vector as a polynomial (over ZZ) in a temporary indeterminate z,
 # and evaluate at z = char(F) to get the Steinitz number.
 # NOTE for whatever reason, evaluate(polynomial(), ) is faster than evalpoly()
-function steinitznumber(F::FinField, x::FinFieldElem)
-    if order(F) == characteristic(F)
-        return lift(x)
-    end
-    v = lift.(absolute_coordinates(x) * F.primitivepowersintowerbasis)
+function steinitznumber(F::T, x) where T <: Union{Nemo.fpField, Nemo.FpField}
+  @assert parent(x) === F
+  return lift(x)
+end
+function steinitznumber(F::T, x) where T <: FinField
+    @assert parent(x) === F
+    v = lift.(absolute_coordinates(x) * primitivepowersintowerbasis(F))
     return evaluate(polynomial(ZZ, v), characteristic(F))
 end
-function steinitznumber(x::FinFieldElem)
+function steinitznumber(x::T) where T <: FinFieldElem
     return steinitznumber(parent(x), x)
 end
-
 
 # describes monomials in tower basis plus their degrees
 function std_mon(n)
     error("not implemented")
 end
 # just return degrees
-function std_mon_degs(n)
+function std_mon_degs(n::ZZRingElem)
     if n == 1
         return [ZZ(1)]
     end
     # need the largest prime factor a of n
-    nfactorization = factor(ZZ(n))
+    nfactorization = factor(n)
     nfactors = sort([r for (r,e) in nfactorization])
     a = nfactors[end]
     res = std_mon_degs(div(n,a))
-    new = map( x -> lcm( x, a^nfactorization[a] ),res)
+    k = a^nfactorization[a]
+    new = map( x -> lcm(x, k), res)
     for i = 1:a-1
         append!(res, new)
     end
     return res
 end
-
-
 # map of monomials for degree n -> monomials of degree m by positions
 function std_mon_map(n,m)
     d = std_mon_degs(m)
     return [i for i = 1:length(d) if mod(n, d[i]) == 0]
 end
-
 
 # Embed an element x of Fp^n into Fp^m by Steinitz numbers
 # where nr = steinitznumber(Fp^n, x)
@@ -284,138 +310,144 @@ function embedsteinitz(p,n,m,nr)
 end
 
 
-
 # Given a field K, we construct an extension L with [L:K] = deg
 # We use the irreducible polynomial f = X^deg  + g(X)
 #    where lcoeffs are the coefficients of g(X).
 # We assume b is a generator for K, and so bX will be a generator for L
-function _extensionwithtowerbasis(K::FinField, deg, lcoeffs, b::FinFieldElem)
+function _extensionwithtowerbasis(K::T, deg, lcoeffs, b) where T <: Union{Nemo.fpField, Nemo.FpField}
+    @assert parent(b) === K
+
+    while length(lcoeffs) < deg
+        push!(lcoeffs, zero(K))
+    end
+    push!(lcoeffs, one(K))
+    pmat = identity_matrix(K, Int(deg))
+    vname = "x" * string(deg)
+    L, X = FiniteField(polynomial(K, lcoeffs), vname)
+    set_standardfinitefield!(L)
+    set_primitivepowersintowerbasis!(L, pmat)
+
+    return L
+end
+function _extensionwithtowerbasis(K::FinField, deg, lcoeffs, b)
+    @assert parent(b) === K
+
     dK = absolute_degree(K)
+    if dK == 1 then
+        println("_extensionwithtowerbasis is running unoptimized...")
+    end
     d = Int(dK * deg)
     F = prime_field(K)
-    if dK == 1
-        p = zeros(K, Int(deg)+1)
-        p[1:length(lcoeffs)] = lcoeffs
-        p[end] = one(K)
-        pmat = identity_matrix(F, Int(deg))
-    else
-        while length(lcoeffs) < deg
-            push!(lcoeffs, zero(K))
-        end
-        push!(lcoeffs, one(K))
-        pK = K.primitivepowersintowerbasis
-
-        # The idea is to collect (bX)^i mod f for 1 in 0..d*dK-1
-        # and use this to compute the minimal polynomial of bX over F.
-        # Should we just form the polynomial and compute "mod"???
-        vec = zeros(F, d)
-        vec[1] = one(F)
-        v = zeros(K, Int(deg))
-        v[1] = one(K)
-
-        vecs = Vector{Vector{FinFieldElem}}(undef, d)
-        pols = Vector{Vector{FinFieldElem}}(undef, d)
-        pmat = zero_matrix(F, d, d)
-
-        for i in 1:d+1
-            # println("i: ", i, " vec: ", vec, " v: ", v)
-            if i <= d
-                pmat[i, : ] = vec
-            end
-
-            p = zeros(F, i)
-            p[end] = one(F)
-
-            w = copy(vec)
-            piv = findfirst(!iszero, w)
-            # TODO : figure out the purpose of this loop and FIX it
-            while piv != nothing && isassigned(vecs, piv)
-                x = -w[piv]
-                if isassigned(pols, piv)
-                    # println("p: ", p, " piv ", piv, " pols[piv]: ", pols[piv])
-                    p[1:length(pols[piv])] += x .* pols[piv]
-                end
-                w[piv:d] += x .* @view vecs[piv][piv:d]
-                piv = findnext(!iszero, w, piv+1)
-            end
-            # NOTE : exits the while loop when either piv == nothing, or vecs[piv] is undefined.
-            #        what happens if piv == nothing???
-            # println("Exiting loop with piv = ", piv)
-            if i <= d
-                # println(order(K), " ", piv, " ", v, " ", w)
-                x = inv(w[piv])
-                p .= x .* p
-                w .= x .* w
-                pols[piv] = copy(p)
-                vecs[piv] = copy(w)
-
-
-                # Multiply by vX and find the next vec in the Tower Basis
-                v = collect(coefficients(mod(polynomial(K, pushfirst!(b .* v, zero(K))),
-                                             polynomial(K, lcoeffs))))
-
-                while length(v) < deg
-                    push!(v, zero(K))
-                end
-                # println("new v:", v)
-                vec = vcat(map( a -> coords(a) * pK, v)...)
-
-            end
-        end
-        # Now p is the minimal polynomial over F
-        # pmat gives the primitive powers in the tower basis for the new extension
+    while length(lcoeffs) < deg
+        push!(lcoeffs, zero(K))
     end
+    push!(lcoeffs, one(K))
+    pK = primitivepowersintowerbasis(K)
+
+    # The idea is to collect (bX)^i mod f for 1 in 0..d*dK-1
+    # and use this to compute the minimal polynomial of bX over F.
+    # Should we just form the polynomial and compute "mod"???
+    vec = zeros(F, d)
+    vec[1] = one(F)
+    v = zeros(K, Int(deg))
+    v[1] = one(K)
+
+    vecs = Vector{Vector{FinFieldElem}}(undef, d)
+    pols = Vector{Vector{FinFieldElem}}(undef, d)
+    pmat = zero_matrix(F, d, d)
+    poly = Vector{FinFieldElem}[]
+
+    for i in 1:d+1
+        # println("i: ", i, " vec: ", vec, " v: ", v)
+        if i <= d
+            pmat[i, : ] = vec
+        end
+
+        poly = zeros(F, i)
+        poly[end] = one(F)
+
+        w = copy(vec)
+        piv = findfirst(!iszero, w)
+        # TODO : figure out the purpose of this loop and FIX it
+        while piv != nothing && isassigned(vecs, piv)
+            x = -w[piv]
+            if isassigned(pols, piv)
+                # println("p: ", p, " piv ", piv, " pols[piv]: ", pols[piv])
+                poly[1:length(pols[piv])] += x .* pols[piv]
+            end
+            w[piv:d] += x .* @view vecs[piv][piv:d]
+            piv = findnext(!iszero, w, piv+1)
+        end
+        # NOTE : exits the while loop when either piv == nothing, or vecs[piv] is undefined.
+        #        what happens if piv == nothing???
+        # println("Exiting loop with piv = ", piv)
+        if i <= d
+            # println(order(K), " ", piv, " ", v, " ", w)
+            x = inv(w[piv])
+            poly .= x .* poly
+            w .= x .* w
+            pols[piv] = copy(poly)
+            vecs[piv] = copy(w)
+
+
+            # Multiply by vX and find the next vec in the Tower Basis
+            v = collect(coefficients(mod(polynomial(K, pushfirst!(b .* v, zero(K))),
+                                         polynomial(K, lcoeffs))))
+
+            while length(v) < deg
+                push!(v, zero(K))
+            end
+            # println("new v:", v)
+            vec = vcat(map( a -> coords(a) * pK, v)...)
+
+        end
+    end
+    # Now p is the minimal polynomial over F
+    # pmat gives the primitive powers in the tower basis for the new extension
 
     vname = "x" * string(d)
-    L, X = FiniteField(polynomial(F, p), vname)
-    L.is_standardfinitefield = true
-    L.primitivepowersintowerbasis = pmat
+    L, X = FiniteField(polynomial(F, poly), vname)
+    set_standardfinitefield!(L)
+    set_primitivepowersintowerbasis!(L, pmat)
 
     return L
 
 end
 
 
-function standardfinitefield(p::ZZRingElem,n)
+# TODO: this should work also if p is an integer
+function standardfinitefield(p::ZZRingElem, n::T) where T <: Union{ZZRingElem, Integer}
     if !isprime(p)
         error()
     end
     F = GF(p)
-    if !F.is_standardprimefield
-        F.is_standardprimefield = true
-        F.standardextensions = Dict{ZZRingElem, FinField}(1 => F)
-        F.primitivepowersintowerbasis = identity_matrix(F, 1)
+    set_standardprimefield!(F)
+    get_standardextension!(F, Int(n)) do
+      nfactorization = factor(ZZ(n));
+      nfactors = sort([r for (r,e) in nfactorization]);
+      lastfactor = nfactors[end]
+      nK = div(n,lastfactor)
+      K = standardfinitefield(p, nK)
+
+      stn = steinitznumberforprimedegree(p, Int(lastfactor), nfactorization[lastfactor])
+      n1 = lastfactor^(nfactorization[lastfactor]-1)
+      q1 = p^n1
+
+      # for each element y in this list, we want to
+      # 1. call EmbedSteinitz(p, n1, nK, y)
+      # 2. this should give a number, we want to use ElementSteinitzNumber to get an element of K.
+      l = digits(stn, base = BigInt(q1))
+      c = map(y -> elementfromsteinitznumber(K, embedsteinitz(p, n1, nK, y)), l)
+      b = elementfromsteinitznumber(K, p^( findfirst(x -> x == div(nK, n1), std_mon_degs(nK))-1))
+
+      _extensionwithtowerbasis(K, lastfactor, c, b)
     end
-    ext = F.standardextensions
-    if haskey(ext, n)
-        return ext[n]
-    end
-
-    nfactorization = factor(ZZ(n));
-    nfactors = sort([r for (r,e) in nfactorization]);
-    lastfactor = nfactors[end]
-    nK = div(n,lastfactor)
-    K = standardfinitefield(p, nK)
-
-    stn = steinitznumberforprimedegree(p, lastfactor, nfactorization[lastfactor])
-    n1 = lastfactor^(nfactorization[lastfactor]-1)
-    q1 = p^n1
-
-    # for each element y in this list, we want to
-    # 1. call EmbedSteinitz(p, n1, nK, y)
-    # 2. this should give a number, we want to use ElementSteinitzNumber to get an element of K.
-    l = digits(stn, base = BigInt(q1))
-    c = map(y -> elementfromsteinitznumber(K, embedsteinitz(p, n1, nK, y)), l)
-    b = elementfromsteinitznumber(K, p^( findfirst(x -> x == div(nK, n1), std_mon_degs(nK))-1))
-
-    L = _extensionwithtowerbasis(K, lastfactor, c, b)
-    ext[n] = L
-    return L
 end
 
 
 
 
+# The code below is for testing/benchmarking
 GAP.Packages.load("StandardFF")
 
 function MyPoly(p,n)
