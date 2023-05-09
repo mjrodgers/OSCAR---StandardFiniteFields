@@ -2,7 +2,7 @@
 GAP.Packages.load("StandardFF")
 
 function MyPoly(p,n)
-    return defining_polynomial(standardfinitefield(p,n))
+    return defining_polynomial(standard_finite_field(p,n))
 end
 
 function GAPPoly(p,n)
@@ -21,6 +21,6 @@ S = Set([ n for n in 6:64 if !compare_poly(p,n) ])
 p = ZZ(5)
 for n in 100:150
     println(n)
-    @time F = standardfinitefield(p,n)
+    @time F = standard_finite_field(p,n)
     @time FG = GAP.Globals.StandardFiniteField(5,n)
 end
