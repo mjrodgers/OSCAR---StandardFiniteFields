@@ -32,4 +32,5 @@ p = ZZ(3)
 S = Set([ n for n in 6:64 if !compare_poly(p,n) ])
 S2 = Set([ n for n in 6:64 if !compare_poly2(p,n) ])
 
-test(5, 100:150)
+test(2, 120:140)
+test(5, 90:120)
