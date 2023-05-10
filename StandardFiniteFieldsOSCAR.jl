@@ -1,5 +1,10 @@
 using Oscar
 
+IntegerUnion   = Union{Integer, ZZRingElem}
+PrimeField     = Union{Nemo.fpField, Nemo.FpField}
+PrimeFieldElem = Union{fpFieldElem, FpFieldElem}
+PrimeFieldMatrix = Union{FpMatrix, fpMatrix}
+
 # NOTE: These give missing features to OSCAR/Nemo that will likely be added in the near future.
 
 # TODO : Should be fixed in Nemo
@@ -11,24 +16,33 @@ function (k::FqPolyRepField)(a::Vector)
   return k(polynomial(GF(ZZ(characteristic(k))), a))
 end
 
+
 # TODO : Should be fixed in Hecke for prime fields
 function coords(x::FinFieldElem)
     return absolute_coordinates(x)
 end
-function coords(x::T) where T <: Union{fpFieldElem, FpFieldElem}
+function coords(x::PrimeFieldElem)
     return [x]
 end
 
-# TODO : this doesn't work, needs to be fixed in Nemo
+# TODO : this should be pushed to Nemo.jl/src/flint/gfp_fmpz_mat.jl
 # BUG the fact that this is missing is a major performance problem
-# function inv(a::FpMatrix)
-#   !is_square(a) && error("Matrix must be a square matrix")
-#   z = similar(a)
-#   r = ccall((:nmod_mat_inv, libflint), Int,
-#           (Ref{FpMatrix}, Ref{FpMatrix}), z, a)
-#   !Bool(r) && error("Matrix not invertible")
-#   return z
-# end
+import Base: inv
+using FLINT_jll
+const libflint = FLINT_jll.libflint
+function inv(a::FpMatrix)
+  !is_square(a) && error("Matrix must be a square matrix")
+  z = similar(a)
+  r = ccall((:fmpz_mod_mat_inv, libflint), Int,
+          (Ref{FpMatrix}, Ref{FpMatrix}), z, a)
+  !Bool(r) && error("Matrix not invertible")
+  return z
+end
+
+# TODO : this just makes sense for writing general code
+import Base: big
+big(a::ZZRingElem) = a
+
 
 # _attributes = [
     # :is_standard_finite_field      - bool
@@ -38,80 +52,80 @@ end
     # NOTE I guess we used ZZ ring elements for these instead of Int; does it matter?
     # :steinitz_prime_degree         - Dict{Int, Dict{Int, Int}}
     # :standard_extensions          - Dict{Int, FinField} ]
-function set_standard_prime_field!(F::T) where T <: Union{Nemo.fpField, Nemo.FpField}
+function set_standard_prime_field!(F::PrimeField)
     get_attribute!(F, :is_standard_prime_field) do
         set_attribute!(F, :standard_extensions, Dict{ZZRingElem, FinField}(1 => F))
         set_attribute!(F, :primitive_powers_in_tower_basis, identity_matrix(F, 1))
         true
     end
 end
-function set_standard_finite_field!(F::T) where T <: FinField
+function set_standard_finite_field!(F::FinField)
     set_attribute!(F, :is_standard_finite_field, true)
 end
-function set_primitive_powers_in_tower_basis!(F::T, M::S) where T <: FinField where S <: Union{FpMatrix, fpMatrix}
+function set_primitive_powers_in_tower_basis!(F::FinField, M::PrimeFieldMatrix)
     set_attribute!(F, :primitive_powers_in_tower_basis, M)
     set_attribute!(F, :tower_basis, inv(M))
 end
-function set_steinitz_prime_degree!(F::T, r::S, k::S, nr::S) where T <: FinField where S <: Union{ZZRingElem, Integer}
+function set_steinitz_prime_degree!(F::FinField, r::IntegerUnion, k::IntegerUnion, nr::IntegerUnion)
     spd = get_attribute!(F, :steinitz_prime_degree, Dict{ZZRingElem, Dict{ZZRingElem, ZZRingElem}}())
     spdr = get!(spd, r, Dict{ZZRingElem, ZZRingElem})
     spdr[k] = nr
 end
-function set_steinitz_prime_degree!(f::Function, F::T, r::S, k::S) where T <: FinField where S <: Union{ZZRingElem, Integer}
+function set_steinitz_prime_degree!(f::Function, F::FinField, r::IntegerUnion, k::IntegerUnion)
     spd = get_attribute!(F, :steinitz_prime_degree, Dict{ZZRingElem, Dict{ZZRingElem, ZZRingElem}}())
     spdr = get!(spd, r, Dict{ZZRingElem, ZZRingElem})
     spd[r][k] = f()
 end
-function set_standard_extension!(F::T, n::S, K::FinField) where T <: Union{Nemo.fpField, Nemo.FpField} where S <: Union{ZZRingElem, Integer}
+function set_standard_extension!(F::PrimeField, n::IntegerUnion, K::FinField)
     ext = get_attribute!(F, :standard_extensions, Dict{ZZRingElem, FinField}())
     ext[n] = K
 end
 
 
-function is_standard_prime_field(F::T) where T <: Union{Nemo.fpField, Nemo.FpField}
+function is_standard_prime_field(F::PrimeField)
     get_attribute(F, :is_standard_prime_field, false)
 end
-function is_standard_finite_field(F::T) where T <: FinField
+function is_standard_finite_field(F::FinField)
     get_attribute(F, :is_standard_finite_field, false)
 end
-function primitive_powers_in_tower_basis(F::T) where T <: FinField
+function primitive_powers_in_tower_basis(F::FinField)
     get_attribute(F, :primitive_powers_in_tower_basis, nothing)
 end
-function tower_basis(F::T) where T <: FinField
+function tower_basis(F::FinField)
     get_attribute(F, :tower_basis, nothing)
 end
-function get_steinitz_prime_degree(F::T, r::S, k::S) where T <: FinField where S <: Union{ZZRingElem, Integer}
+function get_steinitz_prime_degree(F::FinField, r::IntegerUnion, k::IntegerUnion)
     spd = get_attribute(F, :steinitz_prime_degree, nothing)
     spdr = get(spd, r, nothing)
     get(spdr, k, nothing)
 end
-function get_steinitz_prime_degree!(f::Function, F::T, r::S, k::S) where T <: FinField where S <: Union{ZZRingElem, Integer}
+function get_steinitz_prime_degree!(f::Function, F::FinField, r::IntegerUnion, k::IntegerUnion)
     spd = get_attribute!(F, :steinitz_prime_degree, Dict{ZZRingElem, Dict{ZZRingElem, ZZRingElem}}() )
     spdr = get!(spd, r, Dict{ZZRingElem, ZZRingElem}())
     get!(spdr, k, f())
 end
-function get_standard_extensions(F::T) where T <: Union{Nemo.fpField, Nemo.FpField}
+function get_standard_extensions(F::PrimeField)
   get_attribute(F, :standard_extensions, nothing)
 end
-function get_standard_extensions!(F::T) where T <: Union{Nemo.fpField, Nemo.FpField}
+function get_standard_extensions!(F::PrimeField)
   get_attribute(F, :standard_extensions, Dict{ZZRingElem, FinField}())
 end
-function get_standard_extension(F::T, k::S) where T <: Union{Nemo.fpField, Nemo.FpField} where S <: Union{ZZRingElem, Integer}
+function get_standard_extension(F::PrimeField, k::IntegerUnion)
   ext = get_attribute(F, :standard_extensions, nothing)
   get(ext, k, nothing)
 end
-function get_standard_extension!(F::T, k::S, L::FinField) where T <: Union{Nemo.fpField, Nemo.FpField} where S <: Union{ZZRingElem, Integer}
+function get_standard_extension!(F::PrimeField, k::IntegerUnion, L::FinField)
   ext = get_attribute!(F, :standard_extensions, Dict{ZZRingElem, FinField}())
   get!(ext, k, L)
 end
-function get_standard_extension!(f::Function, F::T, k::S) where T<: Union{Nemo.fpField, Nemo.FpField} where S <: Union{ZZRingElem, Integer}
+function get_standard_extension!(f::Function, F::PrimeField, k::IntegerUnion)
   ext = get_attribute!(F, :standard_extensions, Dict{ZZRingElem, FinField}())
   get!(f, ext, k)
 end
 
 
 # TODO: Lübeck speeds this up by caching triples [q,m,a] resulting from this
-function standard_affine_shift(q::ZZRingElem, i)
+function standard_affine_shift(q::IntegerUnion, i::IntegerUnion)
     m = div(4*q, 5)
     while gcd(m,q) != 1
         m -= 1
@@ -122,10 +136,10 @@ end
 
 # Given a field F and Steinitz number n, give the corresponding field element.
 # we REQUIRE that F is a standard finite field TODO: using @assert?
-function element_from_steinitz_number(F::T, n) where T <: Union{Nemo.fpField, Nemo.FpField}
+function element_from_steinitz_number(F::PrimeField, n::IntegerUnion)
     return F(n)
 end
-function element_from_steinitz_number(F::FinField, n)
+function element_from_steinitz_number(F::FinField, n::IntegerUnion)
     p = characteristic(F)
     q = order(F)
     if n < 0 || n > q
@@ -143,7 +157,8 @@ end
 
 # Returns an element a in F that is NOT an rth root of unity
 # we REQUIRE that F is a standard finite field TODO: using @assert?
-function non_rth_root(F::FinField, r)
+function non_rth_root(F::FinField, r::IntegerUnion)
+    @assert is_standard_finite_field(F) || is_standard_prime_field(F)
     q = order(F)
     if mod(q-1, r) == 0
         i = 0
@@ -159,9 +174,9 @@ function non_rth_root(F::FinField, r)
     end
 end
 
-function standard_irreducible_coefficient_list(F::FinField, r, a)
+function standard_irreducible_coefficient_list(F::FinField, r::IntegerUnion, a::FinFieldElem)
     q = order(F)
-    l = zeros(F, Int(r)+1) # NOTE - AbstractAlgebra does not allow this be ZZRingElem
+    l = zeros(F, Int(r)+1)
     l[Int(r)+1] = one(F)
     l[1] = a
     l[2] = one(F)
@@ -199,10 +214,10 @@ end
 
 # returns the Steinitz number corresponding to the polynomial g(X),
 # where f = X^r + g(X) is the standard irreducible polynomial over FF(p, r^(k-1))
-function steinitz_number_for_prime_degree(p::ZZRingElem, r::S, k::S) where S <: Union{ZZRingElem, Integer}
+function steinitz_number_for_prime_degree(p::IntegerUnion, r::IntegerUnion, k::IntegerUnion)
     Fp = standard_finite_field(p,1)
 
-    get_steinitz_prime_degree!(Fp, Int(r), Int(k)) do
+    get_steinitz_prime_degree!(Fp, r, k) do
         # now we need to create the polynomial depending on the prime r
         if r == p
             # Artin-Schreier case
@@ -255,32 +270,32 @@ end
 # Then we think of this vector as a polynomial (over ZZ) in a temporary indeterminate z,
 # and evaluate at z = char(F) to get the Steinitz number.
 # NOTE for whatever reason, evaluate(polynomial(), ) is faster than evalpoly()
-function steinitz_number(F::T, x) where T <: Union{Nemo.fpField, Nemo.FpField}
+function steinitz_number(F::PrimeField, x::PrimeFieldElem)
   @assert parent(x) === F
   return lift(x)
 end
-function steinitz_number(F::T, x) where T <: FinField
+function steinitz_number(F::FinField, x::FinFieldElem)
     @assert parent(x) === F
     v = lift.(absolute_coordinates(x) * primitive_powers_in_tower_basis(F))
     return evaluate(polynomial(ZZ, v), characteristic(F))
 end
-function steinitz_number(x::T) where T <: FinFieldElem
+function steinitz_number(x::FinFieldElem)
     return steinitz_number(parent(x), x)
 end
 
 # describes monomials in tower basis plus their degrees
-function standard_monomial(n)
+function standard_monomial(n::IntegerUnion)
     error("not implemented")
 end
 # just return degrees
-function standard_monomial_degrees(n::ZZRingElem)
+function standard_monomial_degrees(n::IntegerUnion)
     if n == 1
-        return [ZZ(1)]
+        return [1]
     end
     # need the largest prime factor a of n
-    nfactorization = factor(n)
+    nfactorization = factor(ZZ(n))
     nfactors = sort([r for (r,e) in nfactorization])
-    a = nfactors[end]
+    a = Int(nfactors[end])
     res = standard_monomial_degrees(div(n,a))
     k = a^nfactorization[a]
     new = map( x -> lcm(x, k), res)
@@ -290,7 +305,7 @@ function standard_monomial_degrees(n::ZZRingElem)
     return res
 end
 # map of monomials for degree n -> monomials of degree m by positions
-function standard_monomial_map(n,m)
+function standard_monomial_map(n::IntegerUnion, m::IntegerUnion)
     d = standard_monomial_degrees(m)
     return [i for i = 1:length(d) if mod(n, d[i]) == 0]
 end
@@ -298,7 +313,7 @@ end
 # Embed an element x of Fp^n into Fp^m by Steinitz numbers
 # where nr = steinitz_number(Fp^n, x)
 # I hate hate hate these variable names copied (mostly) from Lübeck
-function embed_steinitz(p,n,m,nr)
+function embed_steinitz(p::IntegerUnion, n::IntegerUnion, m::IntegerUnion, nr::IntegerUnion)
     if n == m || iszero(nr)
         return nr
     end
@@ -314,7 +329,7 @@ end
 # We use the irreducible polynomial f = X^deg  + g(X)
 #    where lcoeffs are the coefficients of g(X).
 # We assume b is a generator for K, and so bX will be a generator for L
-function _extension_with_tower_basis(K::T, deg, lcoeffs, b) where T <: Union{Nemo.fpField, Nemo.FpField}
+function _extension_with_tower_basis(K::PrimeField, deg::IntegerUnion, lcoeffs::Vector, b::PrimeFieldElem)
     @assert parent(b) === K
 
     while length(lcoeffs) < deg
@@ -329,7 +344,7 @@ function _extension_with_tower_basis(K::T, deg, lcoeffs, b) where T <: Union{Nem
 
     return L
 end
-function _extension_with_tower_basis(K::FinField, deg, lcoeffs, b)
+function _extension_with_tower_basis(K::T, deg::IntegerUnion, lcoeffs::Vector, b::FinFieldElem) where T<:FinField
     @assert parent(b) === K
 
     dK = absolute_degree(K)
@@ -352,10 +367,10 @@ function _extension_with_tower_basis(K::FinField, deg, lcoeffs, b)
     v = zeros(K, Int(deg))
     v[1] = one(K)
 
-    vecs = Vector{Vector{FinFieldElem}}(undef, d)
-    pols = Vector{Vector{FinFieldElem}}(undef, d)
+    vecs = Vector{Vector{eltype(F)}}(undef, d)
+    pols = Vector{Vector{eltype(F)}}(undef, d)
     pmat = zero_matrix(F, d, d)
-    poly = Vector{FinFieldElem}[]
+    poly = Vector{eltype(F)}[]
 
     for i in 1:d+1
         # println("i: ", i, " vec: ", vec, " v: ", v)
@@ -382,7 +397,7 @@ function _extension_with_tower_basis(K::FinField, deg, lcoeffs, b)
         #        what happens if piv == nothing???
         # println("Exiting loop with piv = ", piv)
         if i <= d
-            # println(order(K), " ", piv, " ", v, " ", w)
+            # println(order(K), " ", i, " ", piv, " ", v, " ", w)
             x = inv(w[piv])
             poly .= x .* poly
             w .= x .* w
@@ -416,13 +431,13 @@ end
 
 
 # TODO: this should work also if p is an integer
-function standard_finite_field(p::ZZRingElem, n::T) where T <: Union{ZZRingElem, Integer}
+function standard_finite_field(p::T, n::IntegerUnion) where T<:IntegerUnion
     if !isprime(p)
         error()
     end
     F = GF(p)
     set_standard_prime_field!(F)
-    get_standard_extension!(F, Int(n)) do
+    get_standard_extension!(F, n) do
       nfactorization = factor(ZZ(n));
       nfactors = sort([r for (r,e) in nfactorization]);
       lastfactor = nfactors[end]
@@ -430,8 +445,9 @@ function standard_finite_field(p::ZZRingElem, n::T) where T <: Union{ZZRingElem,
       K = standard_finite_field(p, nK)
 
       stn = steinitz_number_for_prime_degree(p, Int(lastfactor), nfactorization[lastfactor])
-      n1 = lastfactor^(nfactorization[lastfactor]-1)
-      q1 = p^n1
+      n1 = big(lastfactor)^(nfactorization[lastfactor]-1)
+      # BUG this overflows if p is an Int64
+      q1 = big(p)^T(n1)
 
       # for each element y in this list, we want to
       # 1. call EmbedSteinitz(p, n1, nK, y)
