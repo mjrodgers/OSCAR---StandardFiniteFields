@@ -214,6 +214,7 @@ end
 
 # returns the Steinitz number corresponding to the polynomial g(X),
 # where f = X^r + g(X) is the standard irreducible polynomial over FF(p, r^(k-1))
+# TODO Maybe want to ensure this always returns a BigInt?
 function steinitz_number_for_prime_degree(p::IntegerUnion, r::IntegerUnion, k::IntegerUnion)
     Fp = standard_finite_field(p,1)
 
@@ -223,7 +224,7 @@ function steinitz_number_for_prime_degree(p::IntegerUnion, r::IntegerUnion, k::I
             # Artin-Schreier case
             # k = 1 we get [(Xr[1])^p - (Xr[1]) -1]
             # k > 1 we get (Xr[k])^p - (Xr[k]) - (prod(Xr[j] : j in [1..k-1]))^(p-1))
-            q = p^(p^(k-1))
+            q = big(p)^(p^(k-1))
             return (p-1)*(q + div(q,p))
         elseif r == 2 && mod(p,4) == 3
             if k == 1
@@ -235,7 +236,7 @@ function steinitz_number_for_prime_degree(p::IntegerUnion, r::IntegerUnion, k::I
                 return steinitz_number(-a)
             else
                 # Xr[i]^2 - Xr[i-1]
-                return (p-1)*p^(r^(k-2))
+                return (p-1)*big(p)^(r^(k-2))
             end
         elseif r == 2
             if k == 1
@@ -244,7 +245,7 @@ function steinitz_number_for_prime_degree(p::IntegerUnion, r::IntegerUnion, k::I
                 return steinitz_number(-a)
             else
                 # Xr[j]^r - Xr[j-1]
-                return (p-1)*p^(r^(k-2))
+                return (p-1)*big(p)^(r^(k-2))
             end
         else
             # Here we use pseudo-random polynomials...
