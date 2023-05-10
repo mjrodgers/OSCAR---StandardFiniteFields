@@ -19,14 +19,17 @@ function compare_poly2(p,n)
   F.(collect(coefficients(MyPoly(ZZ(p), n)))) == F.(collect(coefficients(MyPoly(Int(p), n))))
 end
 
+function test(p::IntegerUnion, r::UnitRange)
+    for n in r
+        println(n)
+        @time standard_finite_field(ZZ(p),n)
+        @time standard_finite_field(Int(p),n)
+        @time FG = GAP.Globals.StandardFiniteField(Int(p),n)
+    end
+end
+
 p = ZZ(3)
 S = Set([ n for n in 6:64 if !compare_poly(p,n) ])
 S2 = Set([ n for n in 6:64 if !compare_poly2(p,n) ])
 
-
-for n in 100:150
-    println(n)
-    @time F = standard_finite_field(ZZ(5),n)
-    @time F = standard_finite_field(5,n)
-    @time FG = GAP.Globals.StandardFiniteField(5,n)
-end
+test(5, 100:150)

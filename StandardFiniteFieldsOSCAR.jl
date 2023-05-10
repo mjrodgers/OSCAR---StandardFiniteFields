@@ -176,7 +176,7 @@ end
 
 function standard_irreducible_coefficient_list(F::FinField, r::IntegerUnion, a::FinFieldElem)
     q = order(F)
-    l = zeros(F, Int(r)+1) # NOTE - AbstractAlgebra does not allow this be ZZRingElem
+    l = zeros(F, Int(r)+1)
     l[Int(r)+1] = one(F)
     l[1] = a
     l[2] = one(F)
@@ -217,7 +217,7 @@ end
 function steinitz_number_for_prime_degree(p::IntegerUnion, r::IntegerUnion, k::IntegerUnion)
     Fp = standard_finite_field(p,1)
 
-    get_steinitz_prime_degree!(Fp, Int(r), Int(k)) do
+    get_steinitz_prime_degree!(Fp, r, k) do
         # now we need to create the polynomial depending on the prime r
         if r == p
             # Artin-Schreier case
@@ -290,7 +290,7 @@ end
 # just return degrees
 function standard_monomial_degrees(n::IntegerUnion)
     if n == 1
-        return [Int(1)]
+        return [1]
     end
     # need the largest prime factor a of n
     nfactorization = factor(ZZ(n))
@@ -344,7 +344,7 @@ function _extension_with_tower_basis(K::PrimeField, deg::IntegerUnion, lcoeffs::
 
     return L
 end
-function _extension_with_tower_basis(K::FinField, deg::IntegerUnion, lcoeffs::Vector, b::FinFieldElem)
+function _extension_with_tower_basis(K::T, deg::IntegerUnion, lcoeffs::Vector, b::FinFieldElem) where T<:FinField
     @assert parent(b) === K
 
     dK = absolute_degree(K)
@@ -367,10 +367,10 @@ function _extension_with_tower_basis(K::FinField, deg::IntegerUnion, lcoeffs::Ve
     v = zeros(K, Int(deg))
     v[1] = one(K)
 
-    vecs = Vector{Vector{FinFieldElem}}(undef, d)
-    pols = Vector{Vector{FinFieldElem}}(undef, d)
+    vecs = Vector{Vector{eltype(F)}}(undef, d)
+    pols = Vector{Vector{eltype(F)}}(undef, d)
     pmat = zero_matrix(F, d, d)
-    poly = Vector{FinFieldElem}[]
+    poly = Vector{eltype(F)}[]
 
     for i in 1:d+1
         # println("i: ", i, " vec: ", vec, " v: ", v)
@@ -437,7 +437,7 @@ function standard_finite_field(p::T, n::IntegerUnion) where T<:IntegerUnion
     end
     F = GF(p)
     set_standard_prime_field!(F)
-    get_standard_extension!(F, Int(n)) do
+    get_standard_extension!(F, n) do
       nfactorization = factor(ZZ(n));
       nfactors = sort([r for (r,e) in nfactorization]);
       lastfactor = nfactors[end]
