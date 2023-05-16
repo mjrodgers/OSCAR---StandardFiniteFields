@@ -1,4 +1,5 @@
 using Oscar
+using Memoization
 
 const IntegerUnion     = Oscar.IntegerUnion
 const PrimeField       = Union{Nemo.fpField, Nemo.FpField}
@@ -6,6 +7,19 @@ const PrimeFieldElem   = Union{fpFieldElem, FpFieldElem}
 const PrimeFieldMatrix = Union{FpMatrix, fpMatrix}
 
 # NOTE: These give missing features to OSCAR/Nemo that will likely be added in the near future.
+
+# TODO : FacElem are from Hecke, maybe we can add some functionality here
+function pop_largest_factor!(f::FacElem{ZZRingElem})
+    D = f.fac
+    m = maximum(f)
+    if m[2] == 1
+        Base.delete!(D, m)
+    else
+        D[m[1]] -= 1
+    end
+    return m
+end
+
 
 # TODO : Should be fixed in Nemo
 function (k::Nemo.FpField)(a::Vector)
@@ -118,12 +132,18 @@ end
 
 
 # TODO: Lübeck speeds this up by caching triples [q,m,a] resulting from this
-function standard_affine_shift(q::IntegerUnion, i::IntegerUnion)
+# TODO: Finish this Memoization stuff (`Using Memoization`)
+@memoize function standard_affine_shift_data(q::IntegerUnion)
     m = div(4*q, 5)
     while gcd(m,q) != 1
         m -= 1
     end
     a = div(2*q, 3)
+    return m, a
+end
+
+function standard_affine_shift(q::IntegerUnion, i::IntegerUnion)
+    m, a = standard_affine_shift_data(q)
     return mod((m*i + a), q)
 end
 
@@ -278,6 +298,7 @@ function standard_monomial(n::IntegerUnion)
     error("not implemented")
 end
 # just return degrees
+# TODO : cache these values, because we do too much factoring
 function standard_monomial_degrees(n::IntegerUnion)::Vector{Int}
     if n == 1
         return [1]
@@ -424,11 +445,17 @@ function standard_finite_field(p::IntegerUnion, n::IntegerUnion)
     F = GF(p)
     set_standard_prime_field!(F)
     get_standard_extension!(F, n) do
-        lastfactor, k = largest_factor(n)
-        nK = div(n,lastfactor)
-        K = standard_finite_field(p, nK)
-        stn = steinitz_number_for_prime_degree(p, lastfactor, k)
-        n1 = ZZ(lastfactor)^(k-1)
+        N = factor(ZZ(n))
+        m, k = pop_largest_factor!(N)
+        # lastfactor, k = largest_factor(n)
+        nK = evaluate(N)
+
+        # TODO : need version of standard_finite_field that takes FacElem
+        K = standard_finite_field(p, N)
+        # K = standard_finite_field(p, nK)
+
+        stn = steinitz_number_for_prime_degree(p, m, k)
+        n1 = ZZ(m)^(k-1)
         q1 = ZZ(p)^n1
 
         # for each element y in this list, we want to
@@ -436,6 +463,9 @@ function standard_finite_field(p::IntegerUnion, n::IntegerUnion)
         # 2. this should give a number, we want to use ElementSteinitzNumber to get an element of K.
         l = digits(stn, base = BigInt(q1))
         c = map(y -> element_from_steinitz_number(K, embed_steinitz(p, n1, nK, y)), l)
+
+
+        # TODO : this next line does repeated division...
         b = element_from_steinitz_number(K, p^( findfirst(x -> x == div(nK, n1), standard_monomial_degrees(nK))-1))
 
         _extension_with_tower_basis(K, lastfactor, c, b)
