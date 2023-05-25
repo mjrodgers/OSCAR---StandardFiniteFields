@@ -9,12 +9,11 @@ const PrimeFieldMatrix = Union{FpMatrix, fpMatrix}
 
 # NOTE: These give missing features to OSCAR/Nemo that will likely be added in the near future.
 
-# TODO : FacElem are from Hecke, maybe we can add some functionality here
-function pop_largest_factor!(f::FacElem{ZZRingElem})
+function pop_largest_factor!(f::Fac{ZZRingElem})
     D = f.fac
     m = maximum(f)
     if m[2] == 1
-        Base.delete!(D, m)
+        Base.delete!(D, m[1])
     else
         D[m[1]] -= 1
     end
@@ -443,35 +442,35 @@ function _extension_with_tower_basis(K::T, deg::IntegerUnion, lcoeffs::Vector, b
 end
 
 
-# TODO: this should work also if p is an integer
 function standard_finite_field(p::IntegerUnion, n::IntegerUnion)
-    @req isprime(p) "first argment must be a prime"
+    @req isprime(p) "first argument must be a prime"
     F = GF(p)
     set_standard_prime_field!(F)
-    get_standard_extension!(F, n) do
-        N = factor(ZZ(n))
+
+    function _sff(N::Fac{ZZRingElem})
+        # local m::ZZRingElem, k::IntegerUnion, nK::ZZRingElem, K::FinField, stn::ZZRingElem,
+        #         n1::ZZRingElem, q1::ZZRingElem, l::Vector{ZZRingElem}, c::Vector{ZZRingElem}, b::FinFieldElem
         m, k = pop_largest_factor!(N)
-        # lastfactor, k = largest_factor(n)
         nK = evaluate(N)
 
-        # TODO : need version of standard_finite_field that takes FacElem
-        K = standard_finite_field(p, N)
-        # K = standard_finite_field(p, nK)
-
-        stn = steinitz_number_for_prime_degree(p, m, k)
+        K = get_standard_extension!(F, nK) do
+            _sff(N)
+        end
+        stn = steinitz_number_for_prime_degree(p,m,k)
         n1 = ZZ(m)^(k-1)
         q1 = ZZ(p)^n1
 
-        # for each element y in this list, we want to
-        # 1. call EmbedSteinitz(p, n1, nK, y)
-        # 2. this should give a number, we want to use ElementSteinitzNumber to get an element of K.
         l = digits(stn, base = BigInt(q1))
         c = map(y -> element_from_steinitz_number(K, embed_steinitz(p, n1, nK, y)), l)
 
-        let d = div(nK, n1)
-            b = element_from_steinitz_number(K, p^( findfirst(x -> x == d, standard_monomial_degrees(nK))-1))
-        end
+        d = div(nK, n1)
+        b = element_from_steinitz_number(K, p^( findfirst(x -> x == d, standard_monomial_degrees(nK))-1))
 
-        _extension_with_tower_basis(K, lastfactor, c, b)
+        return _extension_with_tower_basis(K, m, c, b)
+    end
+
+    return get_standard_extension!(F, n) do
+        N = factor(ZZ(n))
+        return _sff(N)
     end
 end
