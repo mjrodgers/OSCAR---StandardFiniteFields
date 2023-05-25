@@ -1,4 +1,5 @@
 using Oscar
+# TODO we shouldn't use external packages
 using Memoization
 
 const IntegerUnion     = Oscar.IntegerUnion
@@ -132,7 +133,7 @@ end
 
 
 # TODO: Lübeck speeds this up by caching triples [q,m,a] resulting from this
-# TODO: Finish this Memoization stuff (`Using Memoization`)
+# NOTE: Caching these values doesn't seem to give a noticeable improvement
 @memoize function standard_affine_shift_data(q::IntegerUnion)
     m = div(4*q, 5)
     while gcd(m,q) != 1
@@ -147,15 +148,16 @@ function standard_affine_shift(q::IntegerUnion, i::IntegerUnion)
     return mod((m*i + a), q)
 end
 
-# Given a field F and Steinitz number n, give the corresponding field element.
-# we REQUIRE that F is a standard finite field TODO: using @assert?
+# Given a standard finite field F and Steinitz number n,
+# give the corresponding field element.
 function element_from_steinitz_number(F::PrimeField, n::IntegerUnion)
+    @req 0 <= n <= order(F) "We need to have 0 <= n <= q"
     return F(n)
 end
 function element_from_steinitz_number(F::FinField, n::IntegerUnion)
+    @req is_standard_finite_field(F) "First input must be a standard finite field"
     p = characteristic(F)
-    q = order(F)
-    @req 0 <= n <= q "We need to have 0 <= n <= q"
+    @req 0 <= n <= order(F) "We need to have 0 <= n <= q"
     n == 0 && return zero(F)
 
     # this forms a linear combo of F.towervasis rows using vectorrep as coefficients,
@@ -191,8 +193,11 @@ function standard_irreducible_coefficient_list(F::FinField, r::IntegerUnion, a::
     l[2] = one(F)
     # inc is the expected number of nonzero coefficients
     inc = 1
-    while q^inc < 2*r
-        inc += 1
+    let t = q
+        while t < 2*r
+            t   *= q
+            inc += 1
+        end
     end
     # allowing non-zero coeffs up to position d
     # after every r attempts allow inc more non-zero coeffs
@@ -223,8 +228,7 @@ end
 
 # returns the Steinitz number corresponding to the polynomial g(X),
 # where f = X^r + g(X) is the standard irreducible polynomial over FF(p, r^(k-1))
-# TODO Maybe want to ensure this always returns a BigInt?
-function steinitz_number_for_prime_degree(p::IntegerUnion, r::IntegerUnion, k::IntegerUnion)
+function steinitz_number_for_prime_degree(p::IntegerUnion, r::IntegerUnion, k::IntegerUnion)::ZZRingElem
     Fp = standard_finite_field(p,1)
 
     get_steinitz_prime_degree!(Fp, r, k) do
@@ -297,9 +301,9 @@ end
 function standard_monomial(n::IntegerUnion)
     error("not implemented")
 end
-# just return degrees
-# TODO : cache these values, because we do too much factoring
-function standard_monomial_degrees(n::IntegerUnion)::Vector{Int}
+# just returns degrees of monomials in tower basis
+# TODO : pass in factorization?
+@memoize function standard_monomial_degrees(n::IntegerUnion)::Vector{Int}
     if n == 1
         return [1]
     end
@@ -464,9 +468,9 @@ function standard_finite_field(p::IntegerUnion, n::IntegerUnion)
         l = digits(stn, base = BigInt(q1))
         c = map(y -> element_from_steinitz_number(K, embed_steinitz(p, n1, nK, y)), l)
 
-
-        # TODO : this next line does repeated division...
-        b = element_from_steinitz_number(K, p^( findfirst(x -> x == div(nK, n1), standard_monomial_degrees(nK))-1))
+        let d = div(nK, n1)
+            b = element_from_steinitz_number(K, p^( findfirst(x -> x == d, standard_monomial_degrees(nK))-1))
+        end
 
         _extension_with_tower_basis(K, lastfactor, c, b)
     end
