@@ -1,3 +1,6 @@
+include("StandardFiniteFields.jl")
+import .StandardFiniteFields
+
 # The code below is for testing/benchmarking
 GAP.Packages.load("StandardFF")
 

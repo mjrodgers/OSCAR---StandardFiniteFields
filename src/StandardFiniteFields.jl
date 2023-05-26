@@ -1,4 +1,10 @@
+module StandardFiniteFields
 using Oscar
+
+export standard_finite_field
+
+
+
 # TODO we shouldn't use external packages
 using Memoization
 
@@ -442,7 +448,18 @@ function _extension_with_tower_basis(K::T, deg::IntegerUnion, lcoeffs::Vector, b
 end
 
 
-function standard_finite_field(p::IntegerUnion, n::IntegerUnion)
+@doc raw"""
+    standard_finite_field(p::Union{ZZRingElem, Integer}, n::Union{ZZRingElem, Integer}) -> FinField
+
+Returns a finite field of order $p^n$.
+
+# Examples
+```jldoctest
+julia> functionname(3, 24)
+Finite field of degree 24 over F_3
+```
+"""
+function standard_finite_field(p::IntegerUnion, n::IntegerUnion) -> FinField
     @req isprime(p) "first argument must be a prime"
     F = GF(p)
     set_standard_prime_field!(F)
