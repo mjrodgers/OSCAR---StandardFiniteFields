@@ -1,4 +1,4 @@
-include("StandardFiniteFields.jl")
+include("../src/StandardFiniteFields.jl")
 import .StandardFiniteFields
 
 # The code below is for testing/benchmarking
