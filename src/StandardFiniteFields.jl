@@ -137,7 +137,6 @@ function get_standard_extension!(f::Function, F::PrimeField, k::IntegerUnion)
 end
 
 
-# TODO: Lübeck speeds this up by caching triples [q,m,a] resulting from this
 # NOTE: Caching these values doesn't seem to give a noticeable improvement
 @memoize function standard_affine_shift_data(q::IntegerUnion)
     m = div(4*q, 5)
@@ -172,7 +171,7 @@ function element_from_steinitz_number(F::FinField, n::IntegerUnion)
 end
 
 # Returns an element a in F that is NOT an rth root of unity
-# we REQUIRE that F is a standard finite field TODO: using @assert?
+# we REQUIRE that F is a standard finite field
 function non_rth_root(F::FinField, r::IntegerUnion)
     @assert is_standard_finite_field(F) || is_standard_prime_field(F)
     q = order(F)
@@ -219,7 +218,7 @@ function standard_irreducible_coefficient_list(F::FinField, r::IntegerUnion, a::
         end
         # q can be very very large so Int is not big enough...
         st = digits(standard_affine_shift(qq,count), base = BigInt(q), pad = d-1)
-        # TODO: we can remove this while loop when fix for n = 0 is live
+        # TODO: we can remove this while loop when fix for padding digits live
         while length(st) < d-1
             push!(st, 0)
         end
@@ -307,7 +306,7 @@ function standard_monomial(n::IntegerUnion)
     error("not implemented")
 end
 # just returns degrees of monomials in tower basis
-# TODO : pass in factorization?
+# TODO : pass in factorization? Do we need this with memoization?
 @memoize function standard_monomial_degrees(n::IntegerUnion)::Vector{Int}
     if n == 1
         return [1]
@@ -459,7 +458,7 @@ julia> functionname(3, 24)
 Finite field of degree 24 over F_3
 ```
 """
-function standard_finite_field(p::IntegerUnion, n::IntegerUnion) -> FinField
+function standard_finite_field(p::IntegerUnion, n::IntegerUnion)
     @req isprime(p) "first argument must be a prime"
     F = GF(p)
     set_standard_prime_field!(F)
